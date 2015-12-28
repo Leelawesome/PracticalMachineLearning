@@ -90,22 +90,156 @@ img {
 </div>
 <div id="load-data-and-libraries" class="section level2">
 <h2>Load Data and Libraries</h2>
+<p>First off, I’m loading all the libraries I will be using for this model.</p>
 <pre class="r"><code>library(caret)</code></pre>
-<pre><code>## Warning: package 'caret' was built under R version 3.2.3</code></pre>
 <pre><code>## Loading required package: lattice
 ## Loading required package: ggplot2</code></pre>
+<pre class="r"><code>library(rattle)</code></pre>
+<pre><code>## Rattle: A free graphical interface for data mining with R.
+## Version 4.0.5 Copyright (c) 2006-2015 Togaware Pty Ltd.
+## Type 'rattle()' to shake, rattle, and roll your data.</code></pre>
+<pre class="r"><code>library(randomForest)</code></pre>
+<pre><code>## randomForest 4.6-12
+## Type rfNews() to see new features/changes/bug fixes.
+## 
+## Attaching package: 'randomForest'
+## 
+## The following object is masked from 'package:ggplot2':
+## 
+##     margin</code></pre>
+<pre class="r"><code>library(e1071)</code></pre>
 <p>Download the .csv files from the links above and set the working directory in the folder that contains them. Load the .csv files in two variables, one for the training set and one for the testing set.</p>
 <pre class="r"><code>set.seed(999)
-train = read.csv(&quot;pml-training.csv&quot;, na.strings=c(&quot;&quot;, &quot;NA&quot;, &quot;NULL&quot;))
+training = read.csv(&quot;pml-training.csv&quot;, na.strings=c(&quot;&quot;, &quot;NA&quot;, &quot;NULL&quot;))
 
-test = read.csv(&quot;pml-testing.csv&quot;, na.strings=c(&quot;&quot;, &quot;NA&quot;, &quot;NULL&quot;))
-dim(train)</code></pre>
+testing = read.csv(&quot;pml-testing.csv&quot;, na.strings=c(&quot;&quot;, &quot;NA&quot;, &quot;NULL&quot;))
+dim(training)</code></pre>
 <pre><code>## [1] 19622   160</code></pre>
-<pre class="r"><code>dim(test)</code></pre>
+<pre class="r"><code>dim(testing)</code></pre>
 <pre><code>## [1]  20 160</code></pre>
-<pre class="r"><code>inTrain &lt;- createDataPartition(train$classe, p=0.70, list=FALSE)
-training &lt;- train[inTrain,]
-validation &lt;- train[-inTrain,]</code></pre>
+</div>
+<div id="create-partitions-in-the-train-set" class="section level2">
+<h2>Create Partitions in the Train Set</h2>
+<p>Here, we’re partioning the Training set into two sets, one to train our model and one to test/cross validate it. I chose to include 70% of my original training set to the smaller training set, but you can choose to partition it differently.</p>
+<pre class="r"><code>inTrain &lt;- createDataPartition(training$classe, p=0.7, list=FALSE)
+train &lt;- training[inTrain,]
+test &lt;- training[-inTrain,]</code></pre>
+</div>
+<div id="data-cleaning" class="section level2">
+<h2>Data Cleaning</h2>
+<p>Now we have to move on to cleaning the datasets. Since the NA values don’t contribute anything, I chose to keep only the columns with full values. There are also some columns that contain useless (to our model) features, so I’m removing them as well.</p>
+<pre class="r"><code>train &lt;- train[,colSums(is.na(train)) == 0]
+classe &lt;- train$classe
+nums &lt;- sapply(train, is.numeric)
+train &lt;- cbind(classe, train[,nums])
+train$X &lt;- train$num_window &lt;-NULL</code></pre>
+<p>Now, I have to apply the same changes to the training set I partitioned before to validate my model and also to the testing set.</p>
+<pre class="r"><code>test &lt;- test[,colSums(is.na(test)) == 0]
+vclasse &lt;- test$classe
+vnums &lt;- sapply(test, is.numeric)
+test &lt;- cbind(vclasse,test[,vnums])
+colnames(test)[1] &lt;- &quot;classe&quot;
+test$X &lt;- test$num_window &lt;- NULL</code></pre>
+<pre class="r"><code>testing &lt;- testing[,colSums(is.na(testing)) == 0]
+tnums &lt;- sapply(testing, is.numeric)
+testing &lt;- testing[,tnums]
+testing$X &lt;- testing$num_window&lt;-NULL</code></pre>
+</div>
+<div id="fitting-the-model" class="section level2">
+<h2>Fitting the Model</h2>
+<p>Here, we’re using Random Forests to fir our model and view the results. Please note that if you decide to run the code on your system, it might take some time.</p>
+<pre class="r"><code>fit &lt;- train(train$classe~.,data=train, method=&quot;rf&quot;)
+fit$results</code></pre>
+<pre><code>##   mtry  Accuracy     Kappa  AccuracySD     KappaSD
+## 1    2 0.9921657 0.9900868 0.001546603 0.001957900
+## 2   28 0.9957007 0.9945603 0.001136726 0.001438638
+## 3   54 0.9893756 0.9865550 0.002650421 0.003357122</code></pre>
+</div>
+<div id="estimate-the-error-with-cross-validation" class="section level2">
+<h2>Estimate the Error with cross validation</h2>
+<p>Now that we have a fitted model, we are going to cross validate it with the partioned data we reserved earlier.</p>
+<p>Since the accuracy of the model is above 99%, I’m expecting an out of sample error of below 1%.</p>
+<pre class="r"><code>traincontrol &lt;- trainControl(method = &quot;cv&quot;, number = 5)
+crossvalidation &lt;- train(test$classe~., data=test, method=&quot;rf&quot;, trControl=traincontrol)
+save(crossvalidation, file=&quot;crossvalidation.RData&quot;)
+load(file=&quot;./crossvalidation.RData&quot;)
+crossvalidation$resample</code></pre>
+<pre><code>##    Accuracy     Kappa Resample
+## 1 0.9923469 0.9903173    Fold1
+## 2 0.9932031 0.9914034    Fold3
+## 3 0.9940527 0.9924787    Fold2
+## 4 0.9864061 0.9828007    Fold5
+## 5 0.9906621 0.9881884    Fold4</code></pre>
+<pre class="r"><code>crossvalidation$results</code></pre>
+<pre><code>##   mtry  Accuracy     Kappa  AccuracySD     KappaSD
+## 1    2 0.9789298 0.9733382 0.005145078 0.006512753
+## 2   28 0.9913342 0.9890377 0.003026799 0.003830680
+## 3   54 0.9891252 0.9862442 0.004590337 0.005808294</code></pre>
+<pre class="r"><code>confusionMatrix(predict(crossvalidation, newdata=test), test$classe)</code></pre>
+<pre><code>## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 1674    0    0    0    0
+##          B    0 1139    0    0    0
+##          C    0    0 1026    0    0
+##          D    0    0    0  964    0
+##          E    0    0    0    0 1082
+## 
+## Overall Statistics
+##                                      
+##                Accuracy : 1          
+##                  95% CI : (0.9994, 1)
+##     No Information Rate : 0.2845     
+##     P-Value [Acc &gt; NIR] : &lt; 2.2e-16  
+##                                      
+##                   Kappa : 1          
+##  Mcnemar's Test P-Value : NA         
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity            1.0000   1.0000   1.0000   1.0000   1.0000
+## Specificity            1.0000   1.0000   1.0000   1.0000   1.0000
+## Pos Pred Value         1.0000   1.0000   1.0000   1.0000   1.0000
+## Neg Pred Value         1.0000   1.0000   1.0000   1.0000   1.0000
+## Prevalence             0.2845   0.1935   0.1743   0.1638   0.1839
+## Detection Rate         0.2845   0.1935   0.1743   0.1638   0.1839
+## Detection Prevalence   0.2845   0.1935   0.1743   0.1638   0.1839
+## Balanced Accuracy      1.0000   1.0000   1.0000   1.0000   1.0000</code></pre>
+<pre class="r"><code>crossvalidation$finalModel</code></pre>
+<pre><code>## 
+## Call:
+##  randomForest(x = x, y = y, mtry = param$mtry) 
+##                Type of random forest: classification
+##                      Number of trees: 500
+## No. of variables tried at each split: 28
+## 
+##         OOB estimate of  error rate: 0.66%
+## Confusion matrix:
+##      A    B    C   D    E class.error
+## A 1671    2    0   1    0 0.001792115
+## B    8 1126    5   0    0 0.011413521
+## C    0    6 1016   4    0 0.009746589
+## D    0    0    7 955    2 0.009336100
+## E    0    0    0   4 1078 0.003696858</code></pre>
+</div>
+<div id="generate-the-prediction-on-the-20-cases" class="section level2">
+<h2>Generate the prediction on the 20 cases</h2>
+<p>At last, we only have to apply the model to generate the predictions and the resulting files are to be submitted on the course website separately. 20/20 correct answers with this one! :)</p>
+<pre class="r"><code>prediction &lt;- predict(fit, newdata=testing)
+prediction</code></pre>
+<pre><code>##  [1] B A B A A E D B A A B C B A E E A B B B
+## Levels: A B C D E</code></pre>
+<pre class="r"><code>pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0(&quot;problem_id_&quot;,i,&quot;.txt&quot;)
+    write.table(x[i],file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+  }
+}
+pml_write_files(prediction)</code></pre>
+<p>Thank for for reviewing my assignment. Have a great 2016 !! :)</p>
 </div>
 
 
